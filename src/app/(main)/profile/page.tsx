@@ -1,0 +1,240 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'motion/react';
+import { User, Mail, Shield, Save, Loader2, Calendar, Ticket, MapPin, ExternalLink } from 'lucide-react';
+import { useSupabaseAuth } from '@/hooks/use-auth';
+import { useNotification } from '@/providers/notification-provider';
+import { useLanguage } from '@/providers/language-provider';
+import { updateProfileAction } from '@/lib/server/actions/auth.actions';
+import { ChipPayButton } from '@/components/events/chip-pay-button';
+
+export default function ProfilePage() {
+  const { user, loading } = useSupabaseAuth();
+  const router = useRouter();
+  const { showNotification } = useNotification();
+  const { t } = useLanguage();
+  
+  const [activeTab, setActiveTab] = useState<'registrations' | 'settings'>('registrations');
+  const [fullName, setFullName] = useState('');
+  const [saving, setSaving] = useState(false);
+  
+  const [registrations, setRegistrations] = useState<any[]>([]);
+  const [loadingRegs, setLoadingRegs] = useState(true);
+
+  // Sync profile values when user loads
+  useEffect(() => {
+    if (user) {
+      setFullName((user.firstName || '') + ' ' + (user.lastName || ''));
+    }
+  }, [user]);
+
+  // Fetch registrations
+  useEffect(() => {
+    if (!user) return;
+    const fetchRegs = async () => {
+      try {
+        const supabase = (await import('@/lib/supabase/client')).createSupabaseBrowserClient();
+        const { data, error } = await supabase
+          .from('registrations')
+          .select('*, events(*)')
+          .eq('athlete_id', user.id);
+        if (error) throw error;
+        setRegistrations(data || []);
+      } catch (err) {
+        console.error('Error fetching registrations:', err);
+      } finally {
+        setLoadingRegs(false);
+      }
+    };
+    fetchRegs();
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!fullName.trim()) {
+      showNotification('Please enter your full name', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append('firstName', fullName.trim().split(' ')[0]);
+      fd.append('lastName', fullName.trim().split(' ').slice(1).join(' '));
+      await updateProfileAction(fd);
+      showNotification('Profile updated!', 'success');
+      router.refresh();
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to update profile', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 size={32} className="animate-spin text-[#4e6500]" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">Please log in</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-28 pb-24 px-6 min-h-screen bg-slate-50 text-slate-900">
+      <div className="max-w-4xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          {/* Header Card */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-10 pb-6 border-b border-slate-300">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-brand/10 rounded-2xl flex items-center justify-center border border-brand/20">
+                <User size={24} className="text-[#4e6500]" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-display font-semibold normal-case tracking-tight">
+                  {user.firstName || 'User'} {user.lastName || ''}
+                </h1>
+                <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">{user.email}</p>
+              </div>
+            </div>
+            
+            {/* Tab Selectors */}
+            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-300">
+              <button
+                onClick={() => setActiveTab('registrations')}
+                className={`px-4 py-2 text-xs font-semibold normal-case tracking-normal rounded-lg transition-all ${
+                  activeTab === 'registrations' ? 'bg-brand text-black' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                My Registrations
+              </button>
+              <button
+                onClick={() => setActiveTab('settings')}
+                className={`px-4 py-2 text-xs font-semibold normal-case tracking-normal rounded-lg transition-all ${
+                  activeTab === 'settings' ? 'bg-brand text-black' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Settings
+              </button>
+            </div>
+          </div>
+
+          {/* Active Tab Panels */}
+          {activeTab === 'registrations' ? (
+            <div className="space-y-4">
+              <h2 className="text-sm font-semibold normal-case tracking-normal text-slate-600 mb-4">Purchased Races & Events</h2>
+              
+              {loadingRegs ? (
+                <div className="py-12 flex justify-center">
+                  <Loader2 size={24} className="animate-spin text-[#4e6500]" />
+                </div>
+              ) : registrations.length === 0 ? (
+                <div className="glass rounded-2xl p-12 text-center border border-slate-300">
+                  <Ticket size={36} className="mx-auto text-slate-600 mb-4" />
+                  <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">No active registrations found</p>
+                  <p className="text-xs text-slate-600 mt-1 normal-case">Browse events to join your first race!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {registrations.map((reg) => (
+                    <div key={reg.id} className="glass rounded-2xl p-6 border border-slate-300 hover:border-brand/20 transition-all flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-xs font-semibold normal-case tracking-normal bg-brand/10 text-[#4e6500] px-2.5 py-1 rounded-full border border-brand/20">
+                            {reg.status || 'CONFIRMED'}
+                          </span>
+                          <span className="text-xs font-mono text-slate-600">#{reg.id.slice(0, 8)}</span>
+                        </div>
+                        
+                        <h3 className="text-base font-display font-semibold normal-case tracking-tight text-slate-900 mb-2 line-clamp-1">
+                          {reg.events?.title || 'Unknown Event'}
+                        </h3>
+                        
+                        <div className="space-y-1.5 mb-6 text-xs font-bold normal-case tracking-normal text-slate-600">
+                          {reg.events?.event_date && (
+                            <div className="flex items-center gap-2">
+                              <Calendar size={12} className="text-slate-600" />
+                              <span>{new Date(reg.events.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                            </div>
+                          )}
+                          {reg.events?.venue_name && (
+                            <div className="flex items-center gap-2">
+                              <MapPin size={12} className="text-slate-600" />
+                              <span>{reg.events.venue_name}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="border-t border-slate-300 pt-4 flex items-center justify-between">
+                        <div>
+                          <span className="text-xs text-slate-600 block normal-case">{reg.status === 'PENDING' ? 'Amount due' : 'Registration total'}</span>
+                          <span className="text-xs font-semibold text-slate-900">RM{Number(reg.net_amount || 0).toFixed(2)}</span>
+                        </div>
+                        <a href={`/events/${reg.event_id}`} className="text-xs font-semibold normal-case tracking-normal text-[#4e6500] flex items-center gap-1 hover:underline">
+                          View Event <ExternalLink size={10} />
+                        </a>
+                      </div>
+                      {reg.status === 'PENDING' && Number(reg.net_amount) > 0 && <ChipPayButton registrationId={reg.id} />}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="glass rounded-2xl p-8 space-y-6 border border-slate-300">
+                <div>
+                  <label className="label-text">{t('signup.name')}</label>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="label-text">{t('login.email')}</label>
+                    <div className="input-field flex items-center gap-2 opacity-50">
+                      <Mail size={14} className="text-slate-600" />
+                      <span className="text-sm">{user.email}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label-text">Role</label>
+                    <div className="input-field flex items-center gap-2 opacity-50">
+                      <Shield size={14} className="text-[#4e6500]" />
+                      <span className="text-sm">{user.role}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button onClick={handleSave} disabled={saving} className="btn-primary w-full text-sm">
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                  Save Changes
+                </button>
+              </div>
+
+              <div className="glass rounded-2xl p-6 border border-slate-300">
+                <p className="text-xs font-semibold normal-case tracking-normal text-slate-600 mb-2">Account ID</p>
+                <p className="text-xs font-mono text-slate-600 break-all">{user.id}</p>
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </div>
+    </div>
+  );
+}
