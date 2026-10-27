@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import { Calendar, MapPin, Users, DollarSign, Plus, Trash2, Edit2, Loader2, ArrowLeft, Check, X, ShieldAlert, Layers } from 'lucide-react';
-import { Sidebar } from '@/components/layout/sidebar';
+import { EventCoverUpload } from '@/components/events/event-cover-upload';
+import { DashboardFrame } from '@/components/layout/dashboard-frame';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useEvent } from '@/hooks/use-events';
 import { useOrganizerRegistrations } from '@/hooks/use-registrations';
@@ -168,11 +169,10 @@ function EventDetailContent() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col lg:flex-row bg-slate-50">
-      <Sidebar variant="organizer" />
-      <div className="flex-1 overflow-auto w-full">
+    <DashboardFrame variant="organizer" title={event.title} description="Manage your event details, cover, categories, and participants.">
+      <div className="min-w-0">
         {/* Header */}
-        <header className="sticky top-0 z-10 bg-white/95 backdrop-blur-xl border-b border-slate-300 pl-14 lg:pl-8 pr-8 py-4">
+        <header className="border border-slate-300 bg-white p-4">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <button
@@ -261,7 +261,7 @@ function EventDetailContent() {
 
           {/* Tab Rendering */}
           <div className="space-y-6">
-            {tab === 'overview' && <OverviewSection event={event} />}
+            {tab === 'overview' && <><EventCoverUpload eventId={id} image={event.cover_image} onSaved={() => { refetchEvent(); qc.invalidateQueries({ queryKey: ['organizer-events'] }); }} /><OverviewSection event={event} /></>}
             {tab === 'categories' && (
               <CategoriesSection
                 event={event}
@@ -276,7 +276,7 @@ function EventDetailContent() {
           </div>
         </div>
       </div>
-    </div>
+    </DashboardFrame>
   );
 }
 

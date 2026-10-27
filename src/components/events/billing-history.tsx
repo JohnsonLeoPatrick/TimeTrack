@@ -11,7 +11,7 @@ const money = (value: number) => new Intl.NumberFormat('en-MY', { style: 'curren
 const statuses: Record<string, string> = { SUCCESS: 'Confirmed', PENDING: 'Awaiting payment', PENDING_REVIEW: 'Needs confirmation', FAILED: 'Checkout closed', REFUNDED: 'Refunded' };
 type BillingRegistration = { events: { title: string } | { title: string }[] | null };
 type BillingPayment = {
-  id: string; amount: number; status: string; payment_gateway: string; created_at: string;
+  id: string; registration_id: string; amount: number; status: string; payment_gateway: string; created_at: string;
   metadata: { is_test?: boolean } | null;
   registrations: BillingRegistration | BillingRegistration[] | null;
 };
@@ -23,7 +23,7 @@ export function BillingHistory({ userId }: { userId: string }) {
     queryKey: ['my-billing', userId, status, page],
     queryFn: async () => {
       let request = createSupabaseBrowserClient().from('payments')
-        .select('id, amount, status, payment_gateway, metadata, created_at, registrations!inner(athlete_id, registration_number, events(title))', { count: 'exact' })
+        .select('id, registration_id, amount, status, payment_gateway, metadata, created_at, registrations!inner(athlete_id, registration_number, events(title))', { count: 'exact' })
         .eq('registrations.athlete_id', userId).is('deleted_at', null)
         .order('created_at', { ascending: false }).range(page * 10, page * 10 + 9);
       if (status !== 'ALL') request = request.eq('status', status);
@@ -50,6 +50,7 @@ export function BillingHistory({ userId }: { userId: string }) {
             <p className="text-xl font-semibold tabular-nums">{money(Number(record.amount))}</p>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-slate-100 pt-3"><p className="min-w-0 break-all text-xs text-slate-500">Reference: {record.id}</p>{record.payment_gateway === 'CHIP' && <Link href={`/payments/${record.id}`} className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-[#425a0c] hover:underline">{paid ? 'View confirmation' : 'Check payment'}<ArrowUpRight size={16} aria-hidden="true" /></Link>}</div>
+          {paid && <Link href={`/profile/registrations/${record.registration_id}/invoice`} className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold underline">Print invoice / Save PDF</Link>}
           {record.status === 'PENDING_REVIEW' && <p className="mt-2 flex items-start gap-2 text-sm text-amber-900"><TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />Confirmation is pending. Check this payment before paying again.</p>}
         </article>;
       })}

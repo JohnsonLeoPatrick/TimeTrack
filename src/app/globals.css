@@ -274,7 +274,25 @@ body { font-optical-sizing: auto; }
 }
 
 /* Square surfaces and controls also cover legacy rounded utility classes. */
-:where([class*="rounded"], [data-slot]) { border-radius: 0; }
+:where(*, *::before, *::after) { border-radius: 0 !important; }
+
+/* Shared workspace geometry; each role has a distinct accessible accent. */
+[data-workspace="admin"] { --workspace-accent: #4338ca; --workspace-soft: #eef2ff; --color-brand: #4338ca; }
+[data-workspace="organizer"] { --workspace-accent: #0f766e; --workspace-soft: #f0fdfa; --color-brand: #0f766e; }
+[data-workspace="developer"] { --workspace-accent: #7e22ce; --workspace-soft: #faf5ff; --color-brand: #7e22ce; }
+[data-workspace] .workspace-active { border-color: var(--workspace-accent); color: var(--workspace-accent); background: var(--workspace-soft); }
+[data-workspace] > div > header { border-top: 3px solid var(--workspace-accent); }
+[data-workspace] .btn-primary { background: var(--workspace-accent); color: white; border-color: var(--workspace-accent); }
+[data-workspace] :is(.text-blue-700, .text-brand) { color: var(--workspace-accent); }
+[data-workspace] :is(.glass, section, article) { box-shadow: none; }
+[data-workspace] :is(button, a, input):focus-visible { outline-color: var(--workspace-accent); }
+
+@media print {
+  body { background: white !important; color: black !important; }
+  body > div > header, body > div > footer, [data-site-header], [data-site-footer] { display: none !important; }
+  .invoice-page { padding-top: 0 !important; }
+  @page { margin: 16mm; }
+}
 :where(input, textarea, button, select) { font-family: inherit; }
 :where([data-slot="select-trigger"], [data-slot="select-item"], [data-slot^="dropdown-menu-item"]) {
   min-height: 44px;

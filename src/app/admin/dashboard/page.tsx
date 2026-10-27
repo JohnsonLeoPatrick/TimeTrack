@@ -15,6 +15,8 @@ import { adminToggleUserStatusAction, adminUpdateUserRoleAction, generateOrganiz
 import { adminUpdateEventStatusAction } from '@/lib/server/actions/event.actions';
 import { toast } from 'sonner';
 
+import { AccountSettings } from '@/components/layout/account-settings';
+
 type Tab = 'overview' | 'users' | 'events' | 'payments' | 'codes' | 'settings';
 
 export default function AdminDashboardPage() {
@@ -63,7 +65,7 @@ export default function AdminDashboardPage() {
           {tab === 'events' && <EventsTab />}
           {tab === 'payments' && <AdminPaymentsTab />}
           {tab === 'codes' && <AccessCodesTab />}
-          {tab === 'settings' && <SettingsTab />}
+          {tab === 'settings' && <div className="space-y-6"><AccountSettings /><SettingsTab /></div>}
     </DashboardFrame>
   );
 }

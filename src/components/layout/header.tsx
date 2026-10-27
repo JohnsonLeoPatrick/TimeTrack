@@ -89,7 +89,7 @@ export function Header() {
   return (
     <>
     <div className={styles.shell}>
-      <motion.header
+      <motion.header data-site-header
         initial={false}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", bounce: 0, duration: 0.4 }}

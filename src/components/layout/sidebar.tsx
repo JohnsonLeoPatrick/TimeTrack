@@ -27,6 +27,7 @@ const adminNav = [
 ];
 
 const organizerNav = [
+  { href: '/organizer/dashboard?tab=settings', label: 'Settings', icon: Settings },
   { href: '/organizer/dashboard?tab=overview', label: 'Overview', icon: LayoutDashboard },
   { href: '/organizer/dashboard?tab=events', label: 'Events', icon: Calendar },
   { href: '/organizer/dashboard?tab=registrations', label: 'Registrations', icon: FileText },
@@ -74,7 +75,7 @@ export function Sidebar({ variant }: SidebarProps) {
         const hrefTab = new URLSearchParams(hrefQuery).get('tab');
         const isActive = pathname === hrefPath && (hrefTab ? currentTab === hrefTab : true);
         return <Link key={item.href} aria-current={isActive ? 'page' : undefined} href={item.href} onClick={() => setIsOpen(false)}
-          className={`flex min-h-11 items-center gap-3 border-l-2 px-3 py-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[#4e6500] ${isActive ? 'border-[#4e6500] bg-[#eef2e6] text-[#334500]' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-950'}`}>
+          className={`flex min-h-11 items-center gap-3 border-l-2 px-3 py-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[#4e6500] ${isActive ? 'workspace-active' : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-950'}`}>
           <item.icon size={17} aria-hidden="true" />{item.label}
         </Link>;
       })}
@@ -93,7 +94,7 @@ export function Sidebar({ variant }: SidebarProps) {
         <SheetTrigger aria-label="Open dashboard navigation" className="fixed top-4 left-4 z-30 flex size-11 items-center justify-center border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-100 lg:hidden"><Menu size={20} aria-hidden="true" /></SheetTrigger>
 
       {/* Backdrop */}
-        <SheetContent side="left" className="gap-0 rounded-none bg-white data-[side=left]:w-[min(20rem,calc(100vw-2rem))]">
+        <SheetContent side="left" data-workspace={variant} className="gap-0 rounded-none bg-white data-[side=left]:w-[min(20rem,calc(100vw-2rem))]">
           <SheetTitle className="sr-only">Dashboard navigation</SheetTitle>
           <SheetDescription className="sr-only">Navigate your {variant} workspace.</SheetDescription>
           {navigation()}

@@ -42,6 +42,15 @@ before(async () => {
 
 after(async () => { await db?.close(); });
 
+test('usernames remain unique, validated, and cannot change another account', async () => {
+  await asUser(owner, 'UPDATE users SET username=$1 WHERE id=$2', ['runner_test', owner]);
+  await assert.rejects(asUser(other, 'UPDATE users SET username=$1 WHERE id=$2', ['RUNNER_TEST', other]), /duplicate key/);
+  await assert.rejects(asUser(owner, 'UPDATE users SET username=$1 WHERE id=$2', ['bad handle', owner]), /check constraint/);
+  await asUser(other, 'UPDATE users SET username=$1 WHERE id=$2', ['hijacked', owner]);
+  assert.equal((await db.query('SELECT username FROM users WHERE id=$1', [owner])).rows[0].username, 'runner_test');
+  await assert.rejects(asUser(owner, "UPDATE users SET role='SUPER_ADMIN' WHERE id=$1", [owner]), /authorization|role|privileged|Forbidden/i);
+});
+
 function create(id = owner, name = 'Runner', billing = { first_name: 'Buyer', email: 'buyer@example.test', phone: '+60123456789' }) {
   return asUser(id, 'SELECT public.create_registration_atomic($1, $2, $3::jsonb, $4::jsonb, null) AS value',
     [event, id, JSON.stringify(billing), JSON.stringify([{ category_id: category, full_name: name }])]);

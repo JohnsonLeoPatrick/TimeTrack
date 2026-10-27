@@ -15,7 +15,7 @@ export function DashboardFrame({ variant, title, description, children }: {
 }) {
   const reduceMotion = useReducedMotion();
   return (
-    <div className={`${styles.dashboard} flex min-h-dvh bg-[#f7f8f5]`}>
+    <div data-workspace={variant} className={`${styles.dashboard} flex min-h-dvh bg-[#f7f8f5]`}>
       <a href="#dashboard-content" className="sr-only z-[100] bg-white p-4 focus:not-sr-only focus:fixed focus:top-2 focus:left-2">Skip to dashboard content</a>
       <Sidebar variant={variant} />
       <div className="min-w-0 flex-1">

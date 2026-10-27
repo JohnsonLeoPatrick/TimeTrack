@@ -18,6 +18,7 @@ export type Gender = 'MALE' | 'FEMALE';
 export type NotificationChannel = 'EMAIL' | 'WHATSAPP' | 'SMS' | 'IN_APP';
 
 export interface AuthUser {
+  username?: string;
   id: string;
   email: string;
   role: Role;

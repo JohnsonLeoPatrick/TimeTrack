@@ -1,15 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Upload, FileDown, Loader2, ArrowLeft } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { importResultsAction } from '@/lib/server/actions/result.actions';
 import { toast } from 'sonner';
+import { DashboardFrame } from '@/components/layout/dashboard-frame';
 import { FieldSelect } from '@/components/ui/field-select';
 
-export default function ImportResultsPage() {
+export default function ImportResultsPage() { return <Suspense fallback={<p className="p-8">Loading workspace�</p>}><DashboardFrame variant="organizer" title="Import results" description="Manage event results in your organizer workspace."><Content /></DashboardFrame></Suspense>; }
+function Content() {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
   const [selectedEventId, setSelectedEventId] = useState('');

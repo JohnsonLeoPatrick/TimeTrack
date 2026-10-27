@@ -18,7 +18,9 @@ import { toast } from 'sonner';
 import { FieldSelect } from '@/components/ui/field-select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
-type Tab = 'overview' | 'events' | 'registrations' | 'results' | 'coupons' | 'form-templates' | 'analytics';
+import { AccountSettings } from '@/components/layout/account-settings';
+
+type Tab = 'overview' | 'events' | 'registrations' | 'results' | 'coupons' | 'form-templates' | 'analytics' | 'settings';
 
 export default function OrganizerDashboardPage() {
   return (
@@ -45,7 +47,7 @@ function OrganizerDashboardContent() {
       if (!user) return null;
       
       // Fetch user profile for welcome message
-      const { data: profile } = await supabase.from('users').select('first_name').eq('id', user.id).single();
+      const { data: profile } = await supabase.from('users').select('username').eq('id', user.id).single();
       
       const { data: events, error: eventsError } = await supabase.from('events').select('*').eq('organizer_id', user.id).is('deleted_at', null);
       if (eventsError) throw new Error('Overview could not be loaded. Please try again.');
@@ -57,7 +59,7 @@ function OrganizerDashboardContent() {
       const now = new Date();
       
       return {
-        firstName: profile?.first_name || 'Organizer',
+        firstName: profile?.username || 'Organizer',
         totalEvents: events?.length || 0,
         draftEvents: events?.filter((e: any) => e.status === 'DRAFT').length || 0,
         liveEvents: events?.filter((e: any) => e.status === 'LIVE').length || 0,
@@ -79,6 +81,7 @@ function OrganizerDashboardContent() {
           {tab === 'coupons' && <CouponsTab />}
           {tab === 'form-templates' && <FormTemplatesTab />}
           {tab === 'analytics' && <OrganizerAnalyticsTab />}
+          {tab === 'settings' && <AccountSettings />}
     </DashboardFrame>
   );
 }

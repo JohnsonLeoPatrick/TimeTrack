@@ -6,10 +6,10 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { AuthUser, Role } from '@/lib/types';
 
 async function readProfile(sb: ReturnType<typeof createSupabaseBrowserClient>, identity: { id: string; email?: string; user_metadata?: Record<string, any> }): Promise<AuthUser> {
-  const { data, error } = await sb.from('users').select('role, status, deleted_at, first_name, last_name, phone, avatar_url').eq('id', identity.id).single();
+  const { data, error } = await sb.from('users').select('role, status, deleted_at, username, first_name, last_name, phone, avatar_url').eq('id', identity.id).single();
   if (error) throw new Error(error.message);
   if (!data || data.status !== 'ACTIVE' || data.deleted_at) throw new Error('Account is inactive');
-  return { id: identity.id, email: identity.email || '', role: data.role as Role, firstName: data.first_name, lastName: data.last_name, phone: data.phone, status: data.status, avatarUrl: data.avatar_url };
+  return { id: identity.id, email: identity.email || '', role: data.role as Role, username: data.username, firstName: data.first_name, lastName: data.last_name, phone: data.phone, status: data.status, avatarUrl: data.avatar_url };
 }
 
 export function useSupabaseAuth() {

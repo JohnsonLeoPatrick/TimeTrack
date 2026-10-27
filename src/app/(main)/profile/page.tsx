@@ -19,14 +19,14 @@ export default function ProfilePage() {
   const { t } = useLanguage();
   
   const [activeTab, setActiveTab] = useState<'registrations' | 'billing' | 'settings'>('registrations');
-  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [saving, setSaving] = useState(false);
   
 
   // Sync profile values when user loads
   useEffect(() => {
     if (user) {
-      setFullName((user.firstName || '') + ' ' + (user.lastName || ''));
+      setUsername(user.username || '');
     }
   }, [user]);
 
@@ -46,15 +46,14 @@ export default function ProfilePage() {
   });
 
   const handleSave = async () => {
-    if (!fullName.trim()) {
-      showNotification('Please enter your full name', 'error');
+    if (!username.trim()) {
+      showNotification('Please enter your username', 'error');
       return;
     }
     setSaving(true);
     try {
       const fd = new FormData();
-      fd.append('firstName', fullName.trim().split(' ')[0]);
-      fd.append('lastName', fullName.trim().split(' ').slice(1).join(' '));
+      fd.append('username', username.trim());
       await updateProfileAction(fd);
       showNotification('Profile updated!', 'success');
       router.refresh();
@@ -96,7 +95,7 @@ export default function ProfilePage() {
               </div>
               <div className="min-w-0">
                 <h1 className="text-2xl font-display font-semibold normal-case tracking-tight">
-                  {user.firstName || 'User'} {user.lastName || ''}
+                  {username || user.username || 'Your account'}
                 </h1>
                 <p className="break-all text-sm text-slate-600">{user.email}</p>
               </div>
@@ -144,8 +143,13 @@ export default function ProfilePage() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {registrations.map((reg) => (
-                    <div key={reg.id} className="glass rounded-2xl p-6 border border-slate-300 hover:border-brand/20 transition-all flex flex-col justify-between">
+                    <div key={reg.id} className="border border-slate-300 bg-white transition-all flex flex-col justify-between p-5">
                       <div>
+                        <a href={`/profile/registrations/${reg.id}`} className="relative -mx-5 -mt-5 mb-5 flex min-h-48 items-end overflow-hidden bg-slate-950 p-5 text-white focus-visible:outline-4 focus-visible:outline-blue-600">
+                          {reg.events?.cover_image && <img src={reg.events.cover_image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                          <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-black/20" />
+                          <span className="relative"><span className="block text-lg font-semibold">{reg.events?.title || 'Event'}</span><span className="mt-2 block text-sm">Open your entry & QR tickets</span></span>
+                        </a>
                         <div className="flex items-center justify-between mb-4">
                           <span className={`text-xs font-medium px-2.5 py-1 border ${reg.status === 'PAID' ? 'bg-[#edf3df] text-[#425a0c] border-[#bac99b]' : 'bg-slate-50 text-slate-700 border-slate-300'}`}>
                             {reg.status === 'PAID' ? 'Ready to race' : reg.status === 'PENDING' ? 'Payment pending' : reg.status || 'Status unavailable'}
@@ -182,6 +186,7 @@ export default function ProfilePage() {
                           View Event <ExternalLink size={10} />
                         </a>
                       </div>
+                      {reg.status === 'PAID' && Number(reg.net_amount) > 0 && <a href={`/profile/registrations/${reg.id}/invoice`} className="btn-secondary mt-4">Print invoice</a>}
                       {reg.status === 'PENDING' && Number(reg.net_amount) > 0 && <ChipPayButton registrationId={reg.id} />}
                     </div>
                   ))}
@@ -192,13 +197,13 @@ export default function ProfilePage() {
             <div className="space-y-6">
               <div className="glass rounded-2xl p-8 space-y-6 border border-slate-300">
                 <div>
-                  <label htmlFor="profile-name" className="label-text">{t('signup.name')}</label>
+                  <label htmlFor="profile-name" className="label-text">Username</label>
                   <input
                     id="profile-name"
-                    autoComplete="name"
+                    autoComplete="username" minLength={3} maxLength={32} pattern="[A-Za-z0-9_]{3,32}"
                     type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     className="input-field"
                   />
                 </div>

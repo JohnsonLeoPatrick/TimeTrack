@@ -27,6 +27,8 @@ export default function LoginPage() {
     try {
       const loggedInUser = await signIn(email, password);
       showNotification('Login successful!', 'success');
+      const next = new URLSearchParams(window.location.search).get('redirectTo');
+      if (next && next.startsWith('/') && !next.startsWith('//') && !next.includes('\\')) { router.push(next); return; }
       const role = loggedInUser?.app_metadata?.role;
       if (role === 'ADMIN' || role === 'SUPER_ADMIN') router.push('/admin/dashboard');
       else if (role === 'ORGANIZER') router.push('/organizer/dashboard');

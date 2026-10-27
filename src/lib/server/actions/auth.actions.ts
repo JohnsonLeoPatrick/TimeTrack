@@ -98,25 +98,12 @@ export async function resetPasswordAction(formData: FormData) {
 
 export async function updateProfileAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
-  const firstName = formData.get('firstName') as string;
-  const lastName = formData.get('lastName') as string;
-  const phone = formData.get('phone') as string;
-  const avatarUrl = formData.get('avatarUrl') as string;
-
-  const { error } = await supabase.auth.updateUser({
-    data: { first_name: firstName, last_name: lastName, phone: phone, avatar_url: avatarUrl },
-  });
-
-  if (error) throw new Error(error.message);
-
+  const username = String(formData.get('username') || '').trim().toLowerCase();
+  if (!/^[a-z0-9_]{3,32}$/.test(username)) throw new Error('Use 3–32 letters, numbers, or underscores');
   const { data: { user } } = await supabase.auth.getUser();
-  if (user) {
-    const { error: dbError } = await supabase
-      .from('users')
-      .update({ first_name: firstName, last_name: lastName, phone: phone, avatar_url: avatarUrl })
-      .eq('id', user.id);
-    if (dbError) throw new Error(dbError.message);
-  }
-
-  revalidatePath('/profile', 'page');
+  if (!user) throw new Error('Unauthorized');
+  const { data, error } = await supabase.from('users').update({ username }).eq('id', user.id).eq('status', 'ACTIVE').is('deleted_at', null).select('id').single();
+  if (error?.code === '23505') throw new Error('That username is already taken');
+  if (error || !data) throw new Error('Could not update your username');
+  revalidatePath('/', 'layout');
 }

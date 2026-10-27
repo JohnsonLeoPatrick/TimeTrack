@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'motion/react';
@@ -8,8 +8,10 @@ import { CheckCircle, XCircle, Loader2, ArrowLeft, Trophy, Download } from 'luci
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { finalizeResultsAction, deleteResultAction } from '@/lib/server/actions/result.actions';
 import { toast } from 'sonner';
+import { DashboardFrame } from '@/components/layout/dashboard-frame';
 
-export default function FinalizeResultsPage() {
+export default function FinalizeResultsPage() { return <Suspense fallback={<p className="p-8">Loading workspace�</p>}><DashboardFrame variant="organizer" title="Finalize results" description="Manage event results in your organizer workspace."><Content /></DashboardFrame></Suspense>; }
+function Content() {
   const { eventId } = useParams<{ eventId: string }>();
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
