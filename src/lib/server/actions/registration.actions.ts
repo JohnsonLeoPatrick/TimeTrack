@@ -3,28 +3,29 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { checkRateLimit } from '@/lib/server/security/rate-limit';
 
 const billingSchema = z.object({
-  first_name: z.string().min(1),
-  phone: z.string().min(1),
-  email: z.string().email(),
-  country: z.string().optional(),
-  city: z.string().optional(),
-  postcode: z.string().optional(),
+  first_name: z.string().trim().min(1).max(100),
+  phone: z.string().trim().min(8).max(50),
+  email: z.string().trim().email().max(255),
+  country: z.string().max(100).optional(),
+  city: z.string().max(100).optional(),
+  postcode: z.string().max(20).optional(),
 });
 
 const participantSchema = z.object({
   // Category ids are opaque primary keys. The previous `.uuid()` check rejected
   // valid non-UUID ids (e.g. seeded/local ids such as `cat_1`).
   category_id: z.string().min(1),
-  full_name: z.string().min(1),
+  full_name: z.string().trim().min(1, 'Enter each participant’s name').max(255),
   bib_name: z.string().optional(),
   email: z.string().email().optional(),
   phone: z.string().optional(),
   gender: z.enum(['MALE', 'FEMALE']).optional(),
   ic_passport: z.string().optional(),
   dob: z.string().optional(),
-  age: z.number().optional(),
+  age: z.number().int().min(0).max(120).optional(),
   address: z.string().optional(),
   postcode: z.string().optional(),
   country: z.string().optional(),
@@ -44,14 +45,15 @@ export async function createRegistrationAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
+  if (!checkRateLimit(`registration:${user.id}`, { windowMs: 60000, maxRequests: 5 }).allowed) throw new Error('Please wait a minute before creating another registration');
 
   const eventId = formData.get('eventId') as string;
-  const couponCode = (formData.get('couponCode') as string) || null;
+  const couponCode = z.string().trim().max(100).parse(formData.get('couponCode') || '') || null;
   const billingJson = formData.get('billing') as string;
   const participantsJson = formData.get('participants') as string;
 
   const billing = billingJson ? JSON.parse(billingJson) : {};
-  const participants: any[] = participantsJson ? JSON.parse(participantsJson) : [];
+  const participants = z.array(z.record(z.string(), z.unknown())).min(1).max(100).parse(participantsJson ? JSON.parse(participantsJson) : []);
 
   if (!eventId) throw new Error('Event is required');
   if (participants.length === 0) throw new Error('At least one participant is required');
@@ -59,12 +61,8 @@ export async function createRegistrationAction(formData: FormData) {
   // Parse/clean client input before handing it to the database function.
   const parsedBilling = billingSchema.parse(billing);
 
-  const parsedParticipants = participants.map((p, i) => {
+  const parsedParticipants = participants.map((p) => {
     const cleaned: any = { ...p };
-
-    if (!cleaned.full_name || cleaned.full_name.trim() === '') {
-      cleaned.full_name = i === 0 ? parsedBilling.first_name : `${parsedBilling.first_name} (Guest ${i + 1})`;
-    }
 
     for (const field of OPTIONAL_STRING_FIELDS) {
       if (cleaned[field] === '') delete cleaned[field];
@@ -97,6 +95,7 @@ export async function createRegistrationAction(formData: FormData) {
 }
 
 export async function cancelRegistrationAction(registrationId: string) {
+  z.string().uuid().parse(registrationId);
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
@@ -111,45 +110,28 @@ export async function cancelRegistrationAction(registrationId: string) {
   if (!reg) throw new Error('Registration not found');
   if (reg.status === 'PAID') throw new Error('Please request a refund instead');
 
-  const { error } = await supabase
+  const { data: cancelled, error } = await supabase
     .from('registrations')
     .update({ status: 'CANCELLED', deleted_at: new Date().toISOString() })
-    .eq('id', registrationId);
+    .eq('id', registrationId)
+    .eq('athlete_id', user.id)
+    .eq('status', 'PENDING')
+    .select('id')
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
+  if (!cancelled) throw new Error('Registration status changed. Please refresh before cancelling.');
   revalidatePath('/profile', 'page');
 }
 
 export async function requestRefundAction(registrationId: string, reason: string) {
+  z.string().uuid().parse(registrationId);
+  reason = z.string().trim().min(3).max(2000).parse(reason);
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Unauthorized');
 
-  const { data: reg } = await supabase
-    .from('registrations')
-    .select('id')
-    .eq('id', registrationId)
-    .eq('athlete_id', user.id)
-    .single();
-
-  if (!reg) throw new Error('Registration not found');
-
-  const { data: payment } = await supabase
-    .from('payments')
-    .select('id, amount')
-    .eq('registration_id', registrationId)
-    .eq('status', 'SUCCESS')
-    .single();
-
-  if (!payment) throw new Error('No paid payment found');
-
-  const { error } = await supabase.from('refunds').insert({
-    payment_id: payment.id,
-    registration_id: registrationId,
-    amount: payment.amount,
-    reason,
-    status: 'REFUND_REQUESTED',
-  });
+  const { error } = await supabase.rpc('request_registration_refund', { p_registration_id: registrationId, p_reason: reason });
 
   if (error) throw new Error(error.message);
   revalidatePath('/profile', 'page');

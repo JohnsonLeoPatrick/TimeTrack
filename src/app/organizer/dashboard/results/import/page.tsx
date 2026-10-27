@@ -7,6 +7,7 @@ import { Upload, FileDown, Loader2, ArrowLeft } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { importResultsAction } from '@/lib/server/actions/result.actions';
 import { toast } from 'sonner';
+import { FieldSelect } from '@/components/ui/field-select';
 
 export default function ImportResultsPage() {
   const router = useRouter();
@@ -68,17 +69,8 @@ export default function ImportResultsPage() {
 
         <form onSubmit={handleSubmit} className="space-y-8">
           <div className="glass rounded-2xl p-8">
-            <label className="label-text">Select Event</label>
-            <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)}
-              required className="input-field mb-6"
-            >
-              <option value="">Choose an event...</option>
-              {(events || []).map((ev: any) => (
-                <option key={ev.id} value={ev.id} disabled={ev.results_finalized}>
-                  {ev.title} {ev.results_finalized ? '(Finalized)' : ''}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="import-event" className="label-text">Select Event</label>
+            <div className="mb-6"><FieldSelect id="import-event" label="Select event for result import" value={selectedEventId} onValueChange={setSelectedEventId} options={[{ value: '', label: 'Choose an event...' }, ...(events || []).map((ev: any) => ({ value: ev.id, label: `${ev.title}${ev.results_finalized ? ' (Finalized)' : ''}`, disabled: ev.results_finalized }))]} /></div>
 
             <label className="label-text">CSV File</label>
             <div className="border-2 border-dashed border-slate-300 rounded-2xl p-12 text-center hover:border-blue-500/30 transition-colors">

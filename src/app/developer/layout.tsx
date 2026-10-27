@@ -1,11 +1,3 @@
-import { DesktopGuard } from '@/components/layout/desktop-guard';
-
 export default function DeveloperLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <DesktopGuard theme="purple">
-      <div className="app-light min-h-screen bg-slate-50 text-slate-900">
-        {children}
-      </div>
-    </DesktopGuard>
-  );
+  return <div className="app-light min-h-dvh bg-[#f7f8f5] text-slate-900">{children}</div>;
 }

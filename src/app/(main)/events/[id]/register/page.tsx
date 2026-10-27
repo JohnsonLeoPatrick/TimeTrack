@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
@@ -10,6 +10,8 @@ import { createRegistrationAction } from '@/lib/server/actions/registration.acti
 import { startChipCheckoutAction } from '@/lib/server/actions/chip.actions';
 import { useValidateCoupon } from '@/hooks/use-coupons';
 import { toast } from 'sonner';
+import { FieldSelect } from '@/components/ui/field-select';
+import { PageLoading } from '@/components/layout/page-loading';
 
 interface ParticipantForm {
   category_id: string;
@@ -46,25 +48,28 @@ export default function RegisterPage() {
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const submission = useRef(false);
+  const [submitError, setSubmitError] = useState('');
   const [billing, setBilling] = useState({ first_name: '', phone: '', email: '', country: 'Malaysia', city: '', postcode: '' });
   const [participants, setParticipants] = useState<ParticipantForm[]>([]);
   const [couponCode, setCouponCode] = useState('');
   const [couponResult, setCouponResult] = useState<any>(null);
   const [couponError, setCouponError] = useState('');
 
-  const { data: event, isLoading } = useQuery({
+  const { data: event, isLoading, error: eventError, refetch } = useQuery({
     queryKey: ['event', id],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('events')
         .select('*, event_categories(*)')
         .eq('id', id)
         .single();
+      if (error) throw error;
       return data;
     },
   });
 
-  const categories = (event?.event_categories as any[]) || [];
+  const categories = ((event?.event_categories as any[]) || []).filter(category => !category.deleted_at);
   const totalAmount = participants.reduce((sum, p) => {
     const cat = categories.find(c => c.id === p.category_id);
     return sum + (cat ? Number(cat.base_price) : 0);
@@ -73,7 +78,9 @@ export default function RegisterPage() {
   const netAmount = Math.max(0, totalAmount - discountAmount);
 
   const handleAddParticipant = (categoryId: string) => {
+    if (participants.length >= 100) return;
     setParticipants(prev => [...prev, emptyParticipant(categoryId)]);
+    setCouponResult(null);
   };
 
   const handleRemoveParticipant = (idx: number) => {
@@ -111,6 +118,9 @@ export default function RegisterPage() {
   };
 
   const handleSubmit = async () => {
+    if (submission.current) return;
+    submission.current = true;
+    setSubmitError('');
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -133,29 +143,32 @@ export default function RegisterPage() {
         router.push('/profile');
       }
     } catch (error) {
+      setSubmitError((error as Error).message);
+      submission.current = false;
       toast.error((error as Error).message);
-    } finally {
       setSubmitting(false);
     }
   };
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center"><Loader2 size={32} className="animate-spin text-[#4e6500]" /></div>;
+  if (isLoading) return <PageLoading label="Loading registration" />;
+  if (eventError) return <div role="alert" className="mx-auto max-w-xl px-6 py-36"><h1 className="text-2xl">Registration could not be loaded</h1><p className="my-4 text-slate-600">Please check your connection and try again.</p><button className="btn-secondary" onClick={() => refetch()}>Try again</button></div>;
   if (!event) return <div className="min-h-screen flex items-center justify-center"><p className="text-slate-600">Event not found</p></div>;
 
   const totalSteps = 3;
 
   return (
-    <div className="min-h-screen lg:h-screen lg:overflow-hidden pt-24 pb-6 flex flex-col justify-between bg-white text-slate-900">
-      <div className="max-w-5xl mx-auto px-6 w-full flex-1 flex flex-col justify-between h-full min-h-0">
+    <div className="min-h-dvh pt-28 pb-16 flex flex-col bg-[#f8f9f5] text-slate-900 sm:pt-32">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 w-full flex-1 flex flex-col gap-6">
         
         {/* Steps indicator */}
-        <div className="flex items-center justify-center gap-3 mb-6 shrink-0">
+        <div aria-label={`Registration step ${step} of 3`} className="flex flex-wrap items-center justify-center gap-3 mb-6 shrink-0">
           {[1, 2, 3].map(s => (
-            <div key={s} className="flex items-center gap-3">
+            <div key={s} aria-current={step === s ? 'step' : undefined} className="flex items-center gap-2 sm:gap-3">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all ${
                 step >= s ? 'bg-brand text-black shadow-[0_0_15px_rgba(204,255,0,0.2)]' : 'bg-slate-100 text-slate-600'
               }`}>{step > s ? <Check size={14} /> : s}</div>
-              {s < totalSteps && <div className={`w-12 h-0.5 transition-all ${step > s ? 'bg-brand' : 'bg-slate-100'}`} />}
+              <span className="text-sm font-medium">{['Participants', 'Billing', 'Review'][s - 1]}</span>
+              {s < totalSteps && <div aria-hidden="true" className={`hidden sm:block w-8 h-px ${step > s ? 'bg-[#4e6500]' : 'bg-slate-300'}`} />}
             </div>
           ))}
         </div>
@@ -173,7 +186,7 @@ export default function RegisterPage() {
                     <p className="text-xs text-slate-600 font-bold normal-case tracking-normal mt-1">Select Categories & Add Participants</p>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto pr-2 space-y-3 min-h-0 max-h-[50vh] lg:max-h-[55vh]">
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-3 min-h-0 ">
                     {categories.map(cat => {
                       const count = participants.filter(p => p.category_id === cat.id).length;
                       const isFull = cat.max_slots && count >= cat.max_slots;
@@ -185,14 +198,14 @@ export default function RegisterPage() {
                             <p className="text-xs text-slate-600 mt-1">
                               {cat.description && `${cat.description} • `}
                               RM{Number(cat.base_price).toFixed(2)}
-                              {cat.max_slots && ` • ${cat.max_slots - count} left`}
+                              {cat.max_slots && ` • Up to ${cat.max_slots} places`}
                             </p>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
                             {count > 0 && (
                               <span className="text-xs font-semibold text-[#4e6500]">{count}x</span>
                             )}
-                            <button onClick={() => handleAddParticipant(cat.id)} disabled={isFull}
+                            <button onClick={() => handleAddParticipant(cat.id)} disabled={isFull || participants.length >= 100}
                               className={`px-4 py-2 text-xs font-semibold normal-case tracking-normal rounded-full transition-all ${
                                 isFull ? 'bg-slate-100 text-slate-600 cursor-not-allowed' : 'bg-brand/10 text-[#4e6500] hover:bg-brand/20'
                               }`}
@@ -211,7 +224,7 @@ export default function RegisterPage() {
                       Added Participants ({participants.length})
                     </p>
 
-                    <div className="flex-1 overflow-y-auto pr-1 space-y-2.5 min-h-0 max-h-[40vh] lg:max-h-[48vh]">
+                    <div className="flex-1 overflow-y-auto pr-1 space-y-2.5 min-h-0 ">
                       {participants.length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center text-center py-10 opacity-30">
                           <p className="text-xs font-semibold normal-case tracking-normal">No participants added</p>
@@ -220,14 +233,19 @@ export default function RegisterPage() {
                         participants.map((p, i) => {
                           const cat = categories.find(c => c.id === p.category_id);
                           return (
-                            <div key={i} className="flex items-center justify-between p-3 bg-slate-100 border border-slate-300 rounded-xl">
+                            <div key={i} className="p-4 bg-white border border-slate-300">
+                              <div className="flex items-center justify-between gap-3">
                               <div className="min-w-0 pr-2">
                                 <p className="text-xs font-semibold normal-case tracking-tight text-slate-800 truncate">{cat?.name}</p>
                                 <span className="text-xs font-bold text-[#4e6500] normal-case tracking-wider mt-0.5 block">Slot #{i + 1}</span>
                               </div>
-                              <button onClick={() => handleRemoveParticipant(i)}
-                                className="p-1.5 hover:bg-red-500/10 rounded-lg text-red-500/50 hover:text-red-700 transition-colors shrink-0"
+                              <button aria-label={`Remove participant ${i + 1}`} onClick={() => handleRemoveParticipant(i)}
+                                className="min-h-11 min-w-11 flex items-center justify-center hover:bg-red-50 text-red-700 transition-colors shrink-0"
                               ><X size={12} /></button>
+                              </div>
+                              <label htmlFor={`participant-name-${i}`} className="label-text mt-4">Participant name <span aria-hidden="true">*</span></label>
+                              <input id={`participant-name-${i}`} autoComplete="name" required maxLength={255} value={p.full_name} onChange={e => handleParticipantChange(i, 'full_name', e.target.value)} className="input-field" placeholder="Full name for this race entry" />
+                              <p className="mt-2 text-sm text-slate-500">Use the name you want on the race entry.</p>
                             </div>
                           );
                         })
@@ -236,7 +254,7 @@ export default function RegisterPage() {
                   </div>
 
                   <div className="mt-4 shrink-0 flex justify-end">
-                    <button onClick={() => setStep(2)} disabled={participants.length === 0}
+                    <button onClick={() => setStep(2)} disabled={participants.length === 0 || participants.some(p => !p.full_name.trim())}
                       className="btn-primary text-xs !py-3.5 !px-8 disabled:opacity-30 disabled:cursor-not-allowed font-semibold normal-case tracking-normal rounded-xl transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(204,255,0,0.15)]"
                     >Next: Billing <ArrowRight size={14} /></button>
                   </div>
@@ -269,50 +287,43 @@ export default function RegisterPage() {
 
                 {/* Right Side: Form */}
                 <div className="lg:col-span-8 flex flex-col justify-between min-h-0">
-                  <div className="glass rounded-2xl p-6 border border-slate-300 overflow-y-auto max-h-[50vh] lg:max-h-[55vh] space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="col-span-2">
-                        <label className="label-text text-xs">Full Name</label>
-                        <input type="text" value={billing.first_name} onChange={e => setBilling(p => ({ ...p, first_name: e.target.value }))}
+                  <form id="billing-form" onSubmit={e => { e.preventDefault(); setStep(3); }} className="glass p-5 sm:p-6 border border-slate-300 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="sm:col-span-2">
+                        <label htmlFor="billing-name" className="label-text text-xs">Full Name</label>
+                        <input id="billing-name" autoComplete="name" maxLength={100} type="text" value={billing.first_name} onChange={e => setBilling(p => ({ ...p, first_name: e.target.value }))}
                           required className="input-field !py-2.5 text-xs" placeholder="Your full name" />
                       </div>
                       <div>
-                        <label className="label-text text-xs">Email</label>
-                        <input type="email" value={billing.email} onChange={e => setBilling(p => ({ ...p, email: e.target.value }))}
+                        <label htmlFor="billing-email" className="label-text text-xs">Email</label>
+                        <input id="billing-email" autoComplete="email" maxLength={255} type="email" value={billing.email} onChange={e => setBilling(p => ({ ...p, email: e.target.value }))}
                           required className="input-field !py-2.5 text-xs" placeholder="your@email.com" />
                       </div>
                       <div>
-                        <label className="label-text text-xs">Phone</label>
-                        <input type="tel" value={billing.phone} onChange={e => setBilling(p => ({ ...p, phone: e.target.value }))}
+                        <label htmlFor="billing-phone" className="label-text text-xs">Phone</label>
+                        <input id="billing-phone" autoComplete="tel" minLength={8} maxLength={50} type="tel" value={billing.phone} onChange={e => setBilling(p => ({ ...p, phone: e.target.value }))}
                           required className="input-field !py-2.5 text-xs" placeholder="+60XXXXXXXXX" />
                       </div>
                       <div>
-                        <label className="label-text text-xs">City</label>
-                        <input type="text" value={billing.city} onChange={e => setBilling(p => ({ ...p, city: e.target.value }))}
+                        <label htmlFor="billing-city" className="label-text text-xs">City</label>
+                        <input id="billing-city" autoComplete="address-level2" maxLength={100} type="text" value={billing.city} onChange={e => setBilling(p => ({ ...p, city: e.target.value }))}
                           className="input-field !py-2.5 text-xs" placeholder="City" />
                       </div>
                       <div>
-                        <label className="label-text text-xs">Postcode</label>
-                        <input type="text" value={billing.postcode} onChange={e => setBilling(p => ({ ...p, postcode: e.target.value }))}
+                        <label htmlFor="billing-postcode" className="label-text text-xs">Postcode</label>
+                        <input id="billing-postcode" autoComplete="postal-code" maxLength={20} type="text" value={billing.postcode} onChange={e => setBilling(p => ({ ...p, postcode: e.target.value }))}
                           className="input-field !py-2.5 text-xs" placeholder="Postcode" />
                       </div>
-                      <div className="col-span-2">
-                        <label className="label-text text-xs">Country</label>
-                        <select value={billing.country} onChange={e => setBilling(p => ({ ...p, country: e.target.value }))}
-                          className="input-field !py-2.5 text-xs">
-                          <option value="Malaysia">Malaysia</option>
-                          <option value="Singapore">Singapore</option>
-                          <option value="Indonesia">Indonesia</option>
-                          <option value="Thailand">Thailand</option>
-                          <option value="Other">Other</option>
-                        </select>
+                      <div className="sm:col-span-2">
+                        <label htmlFor="billing-country" className="label-text text-xs">Country</label>
+                        <FieldSelect id="billing-country" label="Billing country" value={billing.country} onValueChange={country => setBilling(p => ({ ...p, country }))} options={['Malaysia', 'Singapore', 'Indonesia', 'Thailand', 'Other'].map(value => ({ value, label: value }))} />
                       </div>
                     </div>
-                  </div>
+                  </form>
 
-                  <div className="mt-4 flex items-center justify-end gap-3 shrink-0">
+                  <div className="mt-4 flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-3 shrink-0">
                     <button onClick={() => setStep(1)} className="btn-secondary text-xs !py-3 !px-6 border-slate-300 rounded-xl"><ArrowLeft size={12} /> Back</button>
-                    <button onClick={() => setStep(3)} disabled={!billing.first_name || !billing.email || !billing.phone}
+                    <button type="submit" form="billing-form" disabled={!billing.first_name.trim() || !billing.email || !billing.phone}
                       className="btn-primary text-xs !py-3 !px-6 disabled:opacity-30 disabled:cursor-not-allowed font-semibold rounded-xl"
                     >Next: Review <ArrowRight size={12} /></button>
                   </div>
@@ -331,10 +342,10 @@ export default function RegisterPage() {
                     <p className="text-xs text-slate-600 font-bold normal-case tracking-normal mt-1">Step 3: Apply Coupon & Pay</p>
                     
                     <div className="glass rounded-xl p-5 mt-6 border border-slate-300">
-                      <p className="text-xs font-semibold normal-case tracking-normal text-slate-600 mb-3">Apply Coupon Code</p>
+                      <label htmlFor="coupon-code" className="label-text">Apply coupon code</label>
                       <div className="flex items-center gap-2">
-                        <input type="text" value={couponCode} onChange={e => { setCouponCode(e.target.value); setCouponResult(null); setCouponError(''); }}
-                          className="flex-1 bg-slate-100 border border-slate-300 rounded-xl py-2 px-3 text-xs outline-none focus:border-brand/40 transition-all text-slate-900"
+                        <input id="coupon-code" maxLength={100} type="text" value={couponCode} onChange={e => { setCouponCode(e.target.value); setCouponResult(null); setCouponError(''); }}
+                          className="min-w-0 flex-1 bg-white border border-slate-400 py-2 px-3 text-base outline-none focus:border-[#4e6500] transition-colors text-slate-900"
                           placeholder="Coupon code" />
                         <button onClick={handleApplyCoupon} disabled={!couponCode.trim() || validateCoupon.isPending}
                           className="btn-primary !py-2 !px-4 text-xs rounded-lg disabled:opacity-30"
@@ -346,7 +357,7 @@ export default function RegisterPage() {
 
                     <div className="glass rounded-xl p-5 mt-4 border border-slate-300 space-y-2.5">
                       <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">Billing Details</p>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                         <div>
                           <span className="text-slate-600 block text-xs normal-case">Name</span>
                           <span className="text-slate-900 font-bold">{billing.first_name}</span>
@@ -355,11 +366,11 @@ export default function RegisterPage() {
                           <span className="text-slate-600 block text-xs normal-case">Phone</span>
                           <span className="text-slate-900 font-bold">{billing.phone}</span>
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <span className="text-slate-600 block text-xs normal-case">Email</span>
                           <span className="text-slate-900 font-bold break-all">{billing.email}</span>
                         </div>
-                        <div className="col-span-2">
+                        <div className="sm:col-span-2">
                           <span className="text-slate-600 block text-xs normal-case">Address</span>
                           <span className="text-slate-900 font-bold">
                             {billing.city && `${billing.city}, `}{billing.postcode && `${billing.postcode}, `}{billing.country}
@@ -372,7 +383,7 @@ export default function RegisterPage() {
 
                 {/* Right Side: Total Summary & Payment */}
                 <div className="lg:col-span-7 flex flex-col justify-between min-h-0">
-                  <div className="glass rounded-2xl p-6 border border-slate-300 flex-1 flex flex-col justify-between min-h-0 max-h-[50vh] lg:max-h-[55vh]">
+                  <div className="glass rounded-2xl p-6 border border-slate-300 flex-1 flex flex-col justify-between min-h-0 ">
                     <p className="text-xs font-semibold normal-case tracking-normal text-slate-600 mb-3 shrink-0">Order Summary</p>
                     
                     <div className="flex-1 overflow-y-auto space-y-2 pr-1 border-b border-slate-300 pb-3 mb-3">
@@ -380,7 +391,7 @@ export default function RegisterPage() {
                         const cat = categories.find(c => c.id === p.category_id);
                         return (
                           <div key={i} className="flex items-center justify-between py-1 text-xs">
-                            <span className="text-slate-600">{cat?.name} (Slot #{i + 1})</span>
+                            <span className="text-slate-600">{p.full_name} <span className="block text-sm">{cat?.name}</span></span>
                             <span className="font-bold">RM{Number(cat?.base_price || 0).toFixed(2)}</span>
                           </div>
                         );
@@ -405,15 +416,17 @@ export default function RegisterPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 flex items-center justify-end gap-3 shrink-0">
-                    <button onClick={() => setStep(2)} className="btn-secondary text-xs !py-3 !px-6 border-slate-300 rounded-xl"><ArrowLeft size={12} /> Back</button>
-                    <button onClick={handleSubmit} disabled={submitting}
+                  <div className="mt-4 flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-3 shrink-0">
+                    <button onClick={() => setStep(2)} disabled={submitting} className="btn-secondary text-xs !py-3 !px-6 border-slate-300 rounded-xl"><ArrowLeft size={12} /> Back</button>
+                    <button onClick={handleSubmit} disabled={submitting} aria-busy={submitting}
                       className="btn-primary text-xs !py-3.5 !px-8 disabled:opacity-30 rounded-xl font-semibold normal-case tracking-normal shadow-[0_0_20px_rgba(204,255,0,0.2)]"
                     >
                       {submitting ? <Loader2 size={12} className="animate-spin shrink-0" /> : null}
                       {submitting ? 'Processing...' : netAmount > 0 ? `Pay RM${netAmount.toFixed(2)}` : 'Complete'}
                     </button>
                   </div>
+                  <p className="mt-4 text-sm leading-relaxed text-slate-600">{submitting ? 'Saving your registration and opening checkout. Keep this page open.' : 'Final pricing is verified when you continue. Payment details are entered on CHIP.'}</p>
+                  {submitError && <p role="alert" className="mt-3 border-l-2 border-red-700 pl-3 text-sm text-red-700">{submitError}</p>}
                 </div>
               </motion.div>
             )}

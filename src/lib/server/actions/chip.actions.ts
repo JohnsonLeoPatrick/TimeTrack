@@ -39,24 +39,25 @@ export async function getChipPaymentStatusAction(paymentId: string) {
   const { user } = await requireRole(['ATHLETE', 'ORGANIZER', 'ADMIN', 'SUPER_ADMIN']);
   if (!checkRateLimit(`chip-status:${user.id}`, { windowMs: 60000, maxRequests: 30 }).allowed) throw new Error('Please wait before checking payment again');
   const supabase = await createSupabaseServerClient();
-  const { data: payment, error } = await supabase.from('payments').select('id, registration_id, gateway_reference, amount, status, payment_gateway, registrations!inner(athlete_id)').eq('id', paymentId).single();
+  const { data: payment, error } = await supabase.from('payments').select('id, registration_id, gateway_reference, amount, status, payment_gateway, metadata, registrations!inner(athlete_id)').eq('id', paymentId).single();
   const registration = Array.isArray(payment?.registrations) ? payment.registrations[0] : payment?.registrations;
   if (error || !payment || registration?.athlete_id !== user.id || payment.payment_gateway !== 'CHIP') throw new Error('Payment not found');
-  if (payment.gateway_reference && payment.status !== 'SUCCESS') {
+  const details = { amount: Number(payment.amount), isTest: payment.metadata?.is_test === true };
+  if (payment.gateway_reference && !['SUCCESS', 'REFUNDED'].includes(payment.status)) {
     const purchase = await retrieveChipPurchase(payment.gateway_reference);
     validateChipPurchase(purchase, { id: payment.gateway_reference, paymentId, amount: amountInSen(payment.amount) });
     if (['cancelled', 'expired'].includes(purchase.status)) {
       const admin = await createSupabaseAdminClient();
       const { error: closeError } = await admin.rpc('close_chip_payment', { p_payment_id: paymentId, p_purchase_id: purchase.id });
       if (closeError) throw new Error('Payment status could not be updated. Please check again shortly.');
-      return { status: 'FAILED' };
+      return { ...details, status: 'FAILED' };
     }
     if (isSettledChipPurchase(purchase)) {
       const admin = await createSupabaseAdminClient();
       const { error: settleError } = await admin.rpc('settle_chip_payment', { p_payment_id: paymentId, p_purchase_id: purchase.id, p_amount_sen: purchase.purchase.total });
       if (settleError) throw new Error('Your payment is awaiting confirmation. Please check again shortly.');
-      return { status: 'SUCCESS' };
+      return { ...details, status: 'SUCCESS' };
     }
   }
-  return { status: payment.status as string };
+  return { ...details, status: payment.status as string };
 }

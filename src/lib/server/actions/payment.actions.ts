@@ -3,6 +3,7 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireRole } from '@/lib/server/auth/require-role';
 import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
 
 export async function createPaymentAction(registrationId: string, gateway: string) {
   if (gateway.toUpperCase() === 'CHIP') throw new Error('Use secure CHIP checkout to create this payment');
@@ -64,6 +65,8 @@ export async function adminRejectPaymentAction(paymentId: string) {
 }
 
 export async function processRefundAction(refundId: string, approve: boolean) {
+  z.string().uuid().parse(refundId);
+  z.boolean().parse(approve);
   await requireRole(['ADMIN', 'SUPER_ADMIN']);
   const supabase = await createSupabaseServerClient();
   const { data: refundPayment, error: paymentError } = await supabase.from('refunds').select('payments!inner(payment_gateway)').eq('id', refundId).single();
@@ -71,23 +74,8 @@ export async function processRefundAction(refundId: string, approve: boolean) {
   const payment = Array.isArray(refundPayment.payments) ? refundPayment.payments[0] : refundPayment.payments;
   if (payment?.payment_gateway === 'CHIP') throw new Error('Process CHIP refunds through the merchant portal; this action does not move provider funds');
 
-  const status = approve ? 'REFUNDED' : 'REFUND_REJECTED';
-
-  const { data: refund, error: refError } = await supabase
-    .from('refunds')
-    .update({ status, processed_at: new Date().toISOString() })
-    .eq('id', refundId)
-    .select('registration_id')
-    .single();
-
-  if (refError) throw new Error(refError.message);
-
-  if (approve) {
-    await supabase
-      .from('registrations')
-      .update({ status: 'REFUNDED' })
-      .eq('id', refund.registration_id);
-  }
+  const { error } = await supabase.rpc('review_registration_refund', { p_refund_id: refundId, p_approve: approve });
+  if (error) throw new Error('Refund review could not be completed. Please check its current status.');
 
   revalidatePath('/admin/dashboard', 'page');
 }

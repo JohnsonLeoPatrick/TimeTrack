@@ -9,6 +9,8 @@ import { useNotification } from '@/providers/notification-provider';
 import { useLanguage } from '@/providers/language-provider';
 import { updateProfileAction } from '@/lib/server/actions/auth.actions';
 import { ChipPayButton } from '@/components/events/chip-pay-button';
+import { BillingHistory } from '@/components/events/billing-history';
+import { useQuery } from '@tanstack/react-query';
 
 export default function ProfilePage() {
   const { user, loading } = useSupabaseAuth();
@@ -16,12 +18,10 @@ export default function ProfilePage() {
   const { showNotification } = useNotification();
   const { t } = useLanguage();
   
-  const [activeTab, setActiveTab] = useState<'registrations' | 'settings'>('registrations');
+  const [activeTab, setActiveTab] = useState<'registrations' | 'billing' | 'settings'>('registrations');
   const [fullName, setFullName] = useState('');
   const [saving, setSaving] = useState(false);
   
-  const [registrations, setRegistrations] = useState<any[]>([]);
-  const [loadingRegs, setLoadingRegs] = useState(true);
 
   // Sync profile values when user loads
   useEffect(() => {
@@ -31,25 +31,19 @@ export default function ProfilePage() {
   }, [user]);
 
   // Fetch registrations
-  useEffect(() => {
-    if (!user) return;
-    const fetchRegs = async () => {
-      try {
+  const { data: registrations = [], isPending: loadingRegs, error: registrationsError, refetch: retryRegistrations } = useQuery({
+    queryKey: ['my-registrations', user?.id],
+    enabled: !!user,
+    queryFn: async () => {
         const supabase = (await import('@/lib/supabase/client')).createSupabaseBrowserClient();
         const { data, error } = await supabase
           .from('registrations')
           .select('*, events(*)')
-          .eq('athlete_id', user.id);
+          .eq('athlete_id', user!.id).is('deleted_at', null).order('created_at', { ascending: false });
         if (error) throw error;
-        setRegistrations(data || []);
-      } catch (err) {
-        console.error('Error fetching registrations:', err);
-      } finally {
-        setLoadingRegs(false);
-      }
-    };
-    fetchRegs();
-  }, [user]);
+        return (data || []) as any[];
+    },
+  });
 
   const handleSave = async () => {
     if (!fullName.trim()) {
@@ -100,45 +94,48 @@ export default function ProfilePage() {
               <div className="w-14 h-14 bg-brand/10 rounded-2xl flex items-center justify-center border border-brand/20">
                 <User size={24} className="text-[#4e6500]" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h1 className="text-2xl font-display font-semibold normal-case tracking-tight">
                   {user.firstName || 'User'} {user.lastName || ''}
                 </h1>
-                <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">{user.email}</p>
+                <p className="break-all text-sm text-slate-600">{user.email}</p>
               </div>
             </div>
             
             {/* Tab Selectors */}
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl border border-slate-300">
+            <nav aria-label="Account sections" className="flex flex-wrap items-center gap-1 border border-slate-300 bg-white p-1">
               <button
                 onClick={() => setActiveTab('registrations')}
+                aria-current={activeTab === 'registrations' ? 'page' : undefined}
                 className={`px-4 py-2 text-xs font-semibold normal-case tracking-normal rounded-lg transition-all ${
                   activeTab === 'registrations' ? 'bg-brand text-black' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                My Registrations
+                Registrations
               </button>
+              <button onClick={() => setActiveTab('billing')} aria-current={activeTab === 'billing' ? 'page' : undefined} className={`min-h-11 px-4 py-2 text-sm font-medium ${activeTab === 'billing' ? 'bg-brand text-black' : 'text-slate-600 hover:bg-slate-100'}`}>Billing</button>
               <button
                 onClick={() => setActiveTab('settings')}
+                aria-current={activeTab === 'settings' ? 'page' : undefined}
                 className={`px-4 py-2 text-xs font-semibold normal-case tracking-normal rounded-lg transition-all ${
                   activeTab === 'settings' ? 'bg-brand text-black' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Settings
               </button>
-            </div>
+            </nav>
           </div>
 
           {/* Active Tab Panels */}
           {activeTab === 'registrations' ? (
             <div className="space-y-4">
-              <h2 className="text-sm font-semibold normal-case tracking-normal text-slate-600 mb-4">Purchased Races & Events</h2>
+              <h2 className="text-2xl font-semibold tracking-tight mb-4">Your race entries</h2>
               
               {loadingRegs ? (
                 <div className="py-12 flex justify-center">
                   <Loader2 size={24} className="animate-spin text-[#4e6500]" />
                 </div>
-              ) : registrations.length === 0 ? (
+              ) : registrationsError ? <div role="alert" className="border border-red-200 bg-white p-6"><p className="text-red-700">Your registrations could not be loaded.</p><button onClick={() => retryRegistrations()} className="btn-secondary mt-4">Try again</button></div> : registrations.length === 0 ? (
                 <div className="glass rounded-2xl p-12 text-center border border-slate-300">
                   <Ticket size={36} className="mx-auto text-slate-600 mb-4" />
                   <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">No active registrations found</p>
@@ -150,8 +147,8 @@ export default function ProfilePage() {
                     <div key={reg.id} className="glass rounded-2xl p-6 border border-slate-300 hover:border-brand/20 transition-all flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between mb-4">
-                          <span className="text-xs font-semibold normal-case tracking-normal bg-brand/10 text-[#4e6500] px-2.5 py-1 rounded-full border border-brand/20">
-                            {reg.status || 'CONFIRMED'}
+                          <span className={`text-xs font-medium px-2.5 py-1 border ${reg.status === 'PAID' ? 'bg-[#edf3df] text-[#425a0c] border-[#bac99b]' : 'bg-slate-50 text-slate-700 border-slate-300'}`}>
+                            {reg.status === 'PAID' ? 'Ready to race' : reg.status === 'PENDING' ? 'Payment pending' : reg.status || 'Status unavailable'}
                           </span>
                           <span className="text-xs font-mono text-slate-600">#{reg.id.slice(0, 8)}</span>
                         </div>
@@ -176,7 +173,7 @@ export default function ProfilePage() {
                         </div>
                       </div>
 
-                      <div className="border-t border-slate-300 pt-4 flex items-center justify-between">
+                      <div className="border-t border-slate-300 pt-4 flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <span className="text-xs text-slate-600 block normal-case">{reg.status === 'PENDING' ? 'Amount due' : 'Registration total'}</span>
                           <span className="text-xs font-semibold text-slate-900">RM{Number(reg.net_amount || 0).toFixed(2)}</span>
@@ -191,12 +188,14 @@ export default function ProfilePage() {
                 </div>
               )}
             </div>
-          ) : (
+          ) : activeTab === 'billing' ? <BillingHistory userId={user.id} /> : (
             <div className="space-y-6">
               <div className="glass rounded-2xl p-8 space-y-6 border border-slate-300">
                 <div>
-                  <label className="label-text">{t('signup.name')}</label>
+                  <label htmlFor="profile-name" className="label-text">{t('signup.name')}</label>
                   <input
+                    id="profile-name"
+                    autoComplete="name"
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
@@ -204,12 +203,12 @@ export default function ProfilePage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="label-text">{t('login.email')}</label>
                     <div className="input-field flex items-center gap-2 opacity-50">
                       <Mail size={14} className="text-slate-600" />
-                      <span className="text-sm">{user.email}</span>
+                      <span className="min-w-0 break-all text-sm">{user.email}</span>
                     </div>
                   </div>
                   <div>

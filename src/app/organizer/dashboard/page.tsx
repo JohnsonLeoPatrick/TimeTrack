@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Calendar, Users, DollarSign, Plus, Loader2, ArrowRight, Tag, Trash2, X, FileText, Trophy, BarChart3, MoreVertical, Copy, Archive, XCircle, CheckCircle } from 'lucide-react';
 import { OrganizerAnalyticsTab } from '@/components/layout/dashboard-data-tabs';
-import { Sidebar } from '@/components/layout/sidebar';
+import { DashboardFrame, DashboardLoading } from '@/components/layout/dashboard-frame';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useOrganizerCoupons, useToggleCoupon } from '@/hooks/use-coupons';
 import { createCouponAction, deleteCouponAction } from '@/lib/server/actions/coupon.actions';
@@ -15,6 +15,8 @@ import { createFormTemplateAction, deleteFormTemplateAction } from '@/lib/server
 import { duplicateEventAction } from '@/lib/server/actions/event.actions';
 import slugify from 'slugify';
 import { toast } from 'sonner';
+import { FieldSelect } from '@/components/ui/field-select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 type Tab = 'overview' | 'events' | 'registrations' | 'results' | 'coupons' | 'form-templates' | 'analytics';
 
@@ -36,7 +38,7 @@ function OrganizerDashboardContent() {
     router.push(`/organizer/dashboard?tab=${newTab}`);
   };
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error: statsError, refetch: retryStats } = useQuery({
     queryKey: ['org-stats'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -45,10 +47,12 @@ function OrganizerDashboardContent() {
       // Fetch user profile for welcome message
       const { data: profile } = await supabase.from('users').select('first_name').eq('id', user.id).single();
       
-      const { data: events } = await supabase.from('events').select('*').eq('organizer_id', user.id).is('deleted_at', null);
+      const { data: events, error: eventsError } = await supabase.from('events').select('*').eq('organizer_id', user.id).is('deleted_at', null);
+      if (eventsError) throw new Error('Overview could not be loaded. Please try again.');
       const eventIds = events?.map((e: any) => e.id) || [];
       
-      const { data: regs } = await supabase.from('registrations').select('total_amount, status, event_id').in('event_id', eventIds);
+      const { data: regs, error: registrationsError } = await supabase.from('registrations').select('net_amount, status, event_id').in('event_id', eventIds).is('deleted_at', null);
+      if (registrationsError) throw new Error('Registration totals could not be loaded. Please try again.');
       
       const now = new Date();
       
@@ -60,38 +64,27 @@ function OrganizerDashboardContent() {
         completedEvents: events?.filter((e: any) => e.status === 'COMPLETED').length || 0,
         totalRegistrations: regs?.length || 0,
         pendingApprovals: regs?.filter((r: any) => r.status === 'PENDING').length || 0,
-        totalRevenue: regs?.filter((r: any) => r.status === 'PAID').reduce((s: number, r: any) => s + Number(r.total_amount), 0) || 0,
+        totalRevenue: regs?.filter((r: any) => r.status === 'PAID').reduce((s: number, r: any) => s + Number(r.net_amount), 0) || 0,
       };
     },
     staleTime: 30_000,
   });
 
   return (
-    <div className="flex min-h-screen flex-col lg:flex-row bg-slate-50">
-      <Sidebar variant="organizer" />
-      <div className="flex-1 overflow-auto w-full">
-        <header className="sticky top-0 z-10 bg-white/95 backdrop-blur-xl border-b border-slate-300 pl-14 lg:pl-8 pr-8 py-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <h1 className="text-lg font-display font-semibold normal-case tracking-tight">
-              ORGANIZER <span className="text-blue-700">HUB</span>
-            </h1>
-          </div>
-        </header>
-        <div className="p-4 lg:p-8 max-w-7xl mx-auto w-full">
-          {tab === 'overview' && <OverviewTab stats={stats} loading={isLoading} />}
+    <DashboardFrame variant="organizer" title={tab === 'overview' ? 'Overview' : tab.replaceAll('-', ' ')} description="Your events, registrations, and results at a glance.">
+          {tab === 'overview' && (statsError ? <div role="alert" className="border border-red-200 bg-white p-6"><p className="text-red-700">{statsError.message}</p><button onClick={() => retryStats()} className="btn-secondary mt-4">Try again</button></div> : <OverviewTab stats={stats} loading={isLoading} />)}
           {tab === 'events' && <EventsTab />}
           {tab === 'registrations' && <RegistrationsTab />}
           {tab === 'results' && <ResultsTab />}
           {tab === 'coupons' && <CouponsTab />}
           {tab === 'form-templates' && <FormTemplatesTab />}
           {tab === 'analytics' && <OrganizerAnalyticsTab />}
-        </div>
-      </div>
-    </div>
+    </DashboardFrame>
   );
 }
 
 function OverviewTab({ stats, loading }: { stats: any; loading: boolean }) {
+  if (loading) return <DashboardLoading />;
   const cards = [
     { label: 'Total Events', value: stats?.totalEvents, icon: Calendar, color: 'text-blue-700' },
     { label: 'Drafts', value: stats?.draftEvents, icon: Calendar, color: 'text-slate-600' },
@@ -99,7 +92,7 @@ function OverviewTab({ stats, loading }: { stats: any; loading: boolean }) {
     { label: 'Completed', value: stats?.completedEvents, icon: Trophy, color: 'text-purple-700' },
     { label: 'Total Registrations', value: stats?.totalRegistrations, icon: Users, color: 'text-green-700' },
     { label: 'Pending Approvals', value: stats?.pendingApprovals, icon: Users, color: 'text-orange-700' },
-    { label: 'Gross Revenue', value: `RM ${(stats?.totalRevenue || 0).toLocaleString()}`, icon: DollarSign, color: 'text-[#4e6500]' },
+    { label: 'Paid registration value', value: `RM ${(stats?.totalRevenue || 0).toLocaleString()}`, icon: DollarSign, color: 'text-[#4e6500]' },
   ];
 
   return (
@@ -111,7 +104,7 @@ function OverviewTab({ stats, loading }: { stats: any; loading: boolean }) {
         <p className="text-sm text-slate-600">Here's what's happening with your events today.</p>
       </div>
       
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <h2 className="text-sm font-semibold normal-case tracking-normal text-slate-600">Overview Metrics</h2>
         <Link href="/organizer/dashboard/events/new" className="btn-primary text-xs !py-3">
           <Plus size={14} /> New Event
@@ -120,7 +113,7 @@ function OverviewTab({ stats, loading }: { stats: any; loading: boolean }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {cards.map((c, i) => (
           <motion.div key={c.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-            className="glass rounded-2xl p-6"
+            className="glass rounded-none p-6"
           >
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">{c.label}</p>
@@ -149,7 +142,7 @@ function EventsTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <h2 className="text-sm font-semibold normal-case tracking-normal text-slate-600">My Events</h2>
         <Link href="/organizer/dashboard/events/new" className="btn-primary text-xs !py-3">
           <Plus size={14} /> New Event
@@ -206,10 +199,10 @@ function EventCard({ ev, index }: { ev: any; index: number }) {
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}
-      className="glass rounded-2xl p-6 flex flex-col justify-between relative"
+      className="glass rounded-none p-6 flex flex-col justify-between relative"
     >
       {loading && (
-        <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center z-20 backdrop-blur-sm">
+        <div className="absolute inset-0 bg-black/50 rounded-none flex items-center justify-center z-20 backdrop-blur-sm">
           <Loader2 size={24} className="animate-spin text-blue-700" />
         </div>
       )}
@@ -218,51 +211,49 @@ function EventCard({ ev, index }: { ev: any; index: number }) {
           <h3 className="text-sm font-semibold normal-case tracking-tight pr-8">{ev.title}</h3>
           
           <div className="absolute top-6 right-6">
-            <button onClick={() => setMenuOpen(!menuOpen)} className="text-slate-600 hover:text-slate-900 transition-colors">
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger disabled={loading} aria-label={`Actions for ${ev.title}`} className="flex min-h-11 min-w-11 items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors">
               <MoreVertical size={16} />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-6 w-48 glass rounded-xl border border-slate-300 shadow-xl overflow-hidden z-30">
-                <div className="flex flex-col text-xs font-bold">
+            </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
                   {ev.status !== 'LIVE' && (
-                    <button onClick={() => handleAction(() => updateStatus('LIVE'), 'Event Published')} className="flex items-center gap-2 px-4 py-3 hover:bg-slate-100 text-left w-full transition-colors">
+                    <DropdownMenuItem onClick={() => handleAction(() => updateStatus('LIVE'), 'Event Published')} className="px-3 py-3">
                       <CheckCircle size={14} className="text-green-700" /> Publish
-                    </button>
+                    </DropdownMenuItem>
                   )}
                   {ev.status === 'LIVE' && (
-                    <button onClick={() => handleAction(() => updateStatus('DRAFT'), 'Event Unpublished')} className="flex items-center gap-2 px-4 py-3 hover:bg-slate-100 text-left w-full transition-colors">
+                    <DropdownMenuItem onClick={() => handleAction(() => updateStatus('DRAFT'), 'Event Unpublished')} className="px-3 py-3">
                       <XCircle size={14} className="text-yellow-700" /> Unpublish (Draft)
-                    </button>
+                    </DropdownMenuItem>
                   )}
-                  <button onClick={() => handleAction(() => duplicateEventAction(ev.id), 'Event Duplicated')} className="flex items-center gap-2 px-4 py-3 hover:bg-slate-100 text-left w-full transition-colors">
+                  <DropdownMenuItem onClick={() => handleAction(() => duplicateEventAction(ev.id), 'Event Duplicated')} className="px-3 py-3">
                     <Copy size={14} className="text-blue-700" /> Duplicate
-                  </button>
+                  </DropdownMenuItem>
                   {ev.status !== 'CANCELED' && (
-                    <button onClick={() => handleAction(() => updateStatus('CANCELED'), 'Event Canceled')} className="flex items-center gap-2 px-4 py-3 hover:bg-slate-100 text-left w-full transition-colors">
+                    <DropdownMenuItem onClick={() => handleAction(() => updateStatus('CANCELED'), 'Event Canceled')} className="px-3 py-3">
                       <X size={14} className="text-red-700" /> Cancel
-                    </button>
+                    </DropdownMenuItem>
                   )}
                   {ev.status !== 'ARCHIVED' && (
-                    <button onClick={() => handleAction(() => updateStatus('ARCHIVED'), 'Event Archived')} className="flex items-center gap-2 px-4 py-3 hover:bg-slate-100 text-left w-full transition-colors">
+                    <DropdownMenuItem onClick={() => handleAction(() => updateStatus('ARCHIVED'), 'Event Archived')} className="px-3 py-3">
                       <Archive size={14} className="text-purple-700" /> Archive
-                    </button>
+                    </DropdownMenuItem>
                   )}
-                  <div className="h-px bg-slate-100 w-full" />
-                  <button onClick={() => {
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={() => {
                     if (confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
                       handleAction(() => deleteEvent(), 'Event Deleted');
                     }
                   }} className="flex items-center gap-2 px-4 py-3 hover:bg-red-500/10 text-red-700 text-left w-full transition-colors">
                     <Trash2 size={14} /> Delete
-                  </button>
-                </div>
-              </div>
-            )}
+                  </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         
         <div className="mb-4">
-          <span className={`text-xs font-semibold normal-case tracking-normal px-2 py-1 rounded-full ${
+          <span className={`text-xs font-semibold normal-case tracking-normal px-2 py-1 rounded-none ${
             ev.status === 'DRAFT' ? 'bg-slate-100 text-slate-600' :
             ev.status === 'LIVE' ? 'bg-green-500/10 text-green-700' :
             ev.status === 'PENDING' ? 'bg-yellow-500/10 text-yellow-700' :
@@ -304,7 +295,7 @@ function RegistrationsTab() {
   });
 
   return (
-    <div className="glass rounded-2xl overflow-hidden overflow-x-auto w-full">
+    <div className="glass rounded-none overflow-hidden overflow-x-auto w-full">
       <table className="w-full min-w-[600px]">
         <thead>
           <tr className="border-b border-slate-300">
@@ -348,7 +339,7 @@ function ResultsTab() {
       <div className="flex items-center gap-4 mb-6">
         <Link href="/organizer/dashboard/results/import" className="btn-secondary text-xs">Import Results</Link>
       </div>
-      <div className="glass rounded-2xl overflow-hidden overflow-x-auto w-full">
+      <div className="glass rounded-none overflow-hidden overflow-x-auto w-full">
         <table className="w-full min-w-[500px]">
           <thead>
             <tr className="border-b border-slate-300">
@@ -432,7 +423,7 @@ function CouponsTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <h2 className="text-sm font-semibold normal-case tracking-normal text-slate-600">Coupons</h2>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -444,10 +435,10 @@ function CouponsTab() {
 
       {showAddForm && (
         <motion.form
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
           onSubmit={handleCreate}
-          className="glass rounded-2xl p-6 mb-6 space-y-4"
+          className="glass rounded-none p-6 mb-6 space-y-4"
         >
           <h3 className="text-xs font-semibold normal-case tracking-normal text-blue-700 mb-2">Create Coupon</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -464,14 +455,7 @@ function CouponsTab() {
             </div>
             <div>
               <label className="label-text">Discount Type</label>
-              <select
-                value={type}
-                onChange={e => setType(e.target.value as 'FIXED' | 'PERCENTAGE')}
-                className="input-field"
-              >
-                <option value="PERCENTAGE">Percentage (%)</option>
-                <option value="FIXED">Fixed Amount (RM)</option>
-              </select>
+              <FieldSelect id="coupon-discount-type" label="Discount type" value={type} onValueChange={value => setType(value as 'FIXED' | 'PERCENTAGE')} options={[{ value: 'PERCENTAGE', label: 'Percentage (%)' }, { value: 'FIXED', label: 'Fixed Amount (RM)' }]} />
             </div>
             <div>
               <label className="label-text">Discount Value</label>
@@ -524,7 +508,7 @@ function CouponsTab() {
           <p className="text-xs text-slate-600 font-bold normal-case tracking-normal">No coupon campaigns active</p>
         </div>
       ) : (
-        <div className="glass rounded-2xl overflow-hidden overflow-x-auto w-full">
+        <div className="glass rounded-none overflow-hidden overflow-x-auto w-full">
           <table className="w-full min-w-[700px]">
             <thead>
               <tr className="border-b border-slate-300">
@@ -540,7 +524,7 @@ function CouponsTab() {
             <tbody>
               {coupons.map(c => (
                 <tr key={c.id} className="border-b border-slate-300 hover:bg-slate-100 transition-colors">
-                  <td className="p-4 font-mono font-bold text-blue-700">{c.code}</td>
+                  <td className="p-4 tabular-nums font-bold text-blue-700">{c.code}</td>
                   <td className="p-4 text-xs text-slate-600">{c.type}</td>
                   <td className="p-4 text-xs font-bold">
                     {c.type === 'PERCENTAGE' ? `${c.value}%` : `RM${c.value}`}
@@ -554,7 +538,7 @@ function CouponsTab() {
                   <td className="p-4">
                     <button
                       onClick={() => toggleMutation.mutate({ couponId: c.id, isActive: !c.is_active })}
-                      className={`text-xs font-semibold normal-case tracking-normal px-2 py-0.5 rounded-full ${
+                      className={`text-xs font-semibold normal-case tracking-normal px-2 py-0.5 rounded-none ${
                         c.is_active ? 'bg-green-500/10 text-green-700' : 'bg-red-500/10 text-red-700'
                       }`}
                     >
@@ -562,7 +546,7 @@ function CouponsTab() {
                     </button>
                   </td>
                   <td className="p-4 text-right">
-                    <button onClick={() => handleDelete(c.id)} className="p-1.5 text-red-500/50 hover:text-red-700 hover:bg-red-500/10 rounded-lg transition-all">
+                    <button onClick={() => handleDelete(c.id)} className="p-1.5 text-red-700 hover:text-red-700 hover:bg-red-500/10 rounded-none transition-all">
                       <Trash2 size={14} />
                     </button>
                   </td>
@@ -658,7 +642,7 @@ function FormTemplatesTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <h2 className="text-sm font-semibold normal-case tracking-normal text-slate-600">Registration Forms</h2>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
@@ -670,10 +654,10 @@ function FormTemplatesTab() {
 
       {showAddForm && (
         <motion.form
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
           onSubmit={handleCreate}
-          className="glass rounded-2xl p-6 mb-6 space-y-4"
+          className="glass rounded-none p-6 mb-6 space-y-4"
         >
           <h3 className="text-xs font-semibold normal-case tracking-normal text-blue-700 mb-2">Create Registration Form Template</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -706,14 +690,14 @@ function FormTemplatesTab() {
               <button
                 type="button"
                 onClick={handleAddField}
-                className="text-xs font-semibold normal-case tracking-normal px-3 py-1 bg-slate-100 hover:bg-slate-100 rounded-full text-slate-600"
+                className="text-xs font-semibold normal-case tracking-normal px-3 py-1 bg-slate-100 hover:bg-slate-100 rounded-none text-slate-600"
               >
                 + Add Field
               </button>
             </div>
 
             {fields.map((f, idx) => (
-              <div key={idx} className="flex flex-col md:flex-row md:items-center gap-3 bg-slate-100 p-3 rounded-xl border border-slate-300">
+              <div key={idx} className="flex flex-col md:flex-row md:items-center gap-3 bg-slate-100 p-3 rounded-none border border-slate-300">
                 <div className="flex-1">
                   <input
                     type="text"
@@ -725,18 +709,7 @@ function FormTemplatesTab() {
                   />
                 </div>
                 <div className="w-full md:w-36">
-                  <select
-                    value={f.type}
-                    onChange={e => handleFieldChange(idx, 'type', e.target.value)}
-                    className="input-field !py-2 !text-xs"
-                  >
-                    <option value="TEXT">Text</option>
-                    <option value="NUMBER">Number</option>
-                    <option value="EMAIL">Email</option>
-                    <option value="PHONE">Phone Number</option>
-                    <option value="DATE">Date</option>
-                    <option value="CHECKBOX">Checkbox</option>
-                  </select>
+                  <FieldSelect id={`form-field-type-${idx}`} label={`Type for field ${idx + 1}`} value={f.type} onValueChange={value => handleFieldChange(idx, 'type', value)} options={['TEXT', 'NUMBER', 'EMAIL', 'PHONE', 'DATE', 'CHECKBOX'].map(value => ({ value, label: value.charAt(0) + value.slice(1).toLowerCase() }))} />
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer self-start md:self-auto py-1">
                   <input
@@ -751,7 +724,7 @@ function FormTemplatesTab() {
                   <button
                     type="button"
                     onClick={() => handleRemoveField(idx)}
-                    className="p-1 hover:bg-red-500/10 rounded text-red-500/50 hover:text-red-700 self-end md:self-auto"
+                    className="p-1 hover:bg-red-500/10 rounded text-red-700 hover:text-red-700 self-end md:self-auto"
                   >
                     <X size={14} />
                   </button>
@@ -781,11 +754,11 @@ function FormTemplatesTab() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {templates.map((t: any) => (
-            <div key={t.id} className="glass rounded-2xl p-6 flex flex-col justify-between">
+            <div key={t.id} className="glass rounded-none p-6 flex flex-col justify-between">
               <div>
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="text-sm font-semibold normal-case tracking-tight">{t.name}</h3>
-                  <span className={`text-xs font-semibold normal-case tracking-normal px-2 py-0.5 rounded-full ${
+                  <span className={`text-xs font-semibold normal-case tracking-normal px-2 py-0.5 rounded-none ${
                     t.is_system ? 'bg-blue-500/10 text-blue-700' : 'bg-green-500/10 text-green-700'
                   }`}>{t.is_system ? 'System' : 'Custom'}</span>
                 </div>
@@ -794,7 +767,7 @@ function FormTemplatesTab() {
                   <span className="text-xs font-semibold normal-case tracking-normal text-slate-600">Fields ({t.fields?.length || 0}):</span>
                   <div className="flex flex-wrap gap-1.5">
                     {t.fields?.map((f: any, i: number) => (
-                      <span key={i} className="text-xs font-mono bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-lg text-slate-600">
+                      <span key={i} className="text-xs tabular-nums bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-none text-slate-600">
                         {f.label} {f.required && '*'}
                       </span>
                     ))}
@@ -803,7 +776,7 @@ function FormTemplatesTab() {
               </div>
               {!t.is_system && (
                 <div className="flex justify-end pt-4 border-t border-slate-300 mt-4">
-                  <button onClick={() => handleDelete(t.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg text-red-500/50 hover:text-red-700 transition-colors">
+                  <button onClick={() => handleDelete(t.id)} className="p-1.5 hover:bg-red-500/10 rounded-none text-red-700 hover:text-red-700 transition-colors">
                     <Trash2 size={14} />
                   </button>
                 </div>

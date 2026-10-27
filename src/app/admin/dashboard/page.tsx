@@ -9,7 +9,7 @@ import {
   Search, Ban, Trash2, CheckCircle, XCircle, Loader2, Key
 } from 'lucide-react';
 import { AdminPaymentsTab } from '@/components/layout/dashboard-data-tabs';
-import { Sidebar } from '@/components/layout/sidebar';
+import { DashboardFrame, DashboardLoading } from '@/components/layout/dashboard-frame';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { adminToggleUserStatusAction, adminUpdateUserRoleAction, generateOrganizerCodeAction, adminHealthAction } from '@/lib/server/actions/admin.actions';
 import { adminUpdateEventStatusAction } from '@/lib/server/actions/event.actions';
@@ -23,22 +23,23 @@ export default function AdminDashboardPage() {
 
   const supabase = createSupabaseBrowserClient();
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, error: statsError, refetch: retryStats } = useQuery({
     queryKey: ['admin-stats'],
     queryFn: async () => {
       const [events, users, regs] = await Promise.all([
         supabase.from('events').select('*'),
         supabase.from('users').select('*'),
-        supabase.from('registrations').select('total_amount, status'),
+        supabase.from('registrations').select('net_amount, status, persons_count').is('deleted_at', null),
       ]);
+      if (events.error || users.error || regs.error) throw new Error('Overview could not be loaded. Please try again.');
       const now = new Date();
       return {
         totalUsers: users.data?.length || 0,
         totalOrganizers: users.data?.filter((u: any) => u.role === 'ORGANIZER').length || 0,
         activeEvents: events.data?.filter((e: any) => e.status === 'LIVE').length || 0,
         upcomingEvents: events.data?.filter((e: any) => new Date(e.event_date) > now).length || 0,
-        ticketsSold: regs.data?.filter((r: any) => r.status === 'CONFIRMED').length || 0,
-        totalRevenue: regs.data?.filter((r: any) => r.status === 'CONFIRMED' || r.status === 'PAID').reduce((s: number, r: any) => s + Number(r.total_amount), 0) || 0,
+        ticketsSold: regs.data?.filter((r: any) => r.status === 'PAID').reduce((sum: number, r: any) => sum + Number(r.persons_count), 0) || 0,
+        totalRevenue: regs.data?.filter((r: any) => r.status === 'PAID').reduce((s: number, r: any) => s + Number(r.net_amount), 0) || 0,
         pendingEvents: events.data?.filter((e: any) => e.status === 'PENDING').length || 0,
       };
     },
@@ -56,35 +57,24 @@ export default function AdminDashboardPage() {
   ];
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar variant="admin" />
-      <div className="flex-1 overflow-auto">
-        <header className="sticky top-0 z-10 bg-white/95 backdrop-blur-xl border-b border-slate-300 px-8 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-lg font-display font-semibold normal-case tracking-tight">
-              ADMIN <span className="text-red-700">DASHBOARD</span>
-            </h1>
-          </div>
-        </header>
-        <div className="p-8">
-          {tab === 'overview' && <OverviewTab stats={statsCards} loading={isLoading} />}
+    <DashboardFrame variant="admin" title={tab === 'overview' ? 'Overview' : tab.charAt(0).toUpperCase() + tab.slice(1)} description="Manage events, people, and billing from one workspace.">
+          {tab === 'overview' && (statsError ? <div role="alert" className="border border-red-200 bg-white p-6"><p className="text-red-700">{statsError.message}</p><button onClick={() => retryStats()} className="btn-secondary mt-4">Try again</button></div> : <OverviewTab stats={statsCards} loading={isLoading} />)}
           {tab === 'users' && <UsersTab />}
           {tab === 'events' && <EventsTab />}
           {tab === 'payments' && <AdminPaymentsTab />}
           {tab === 'codes' && <AccessCodesTab />}
           {tab === 'settings' && <SettingsTab />}
-        </div>
-      </div>
-    </div>
+    </DashboardFrame>
   );
 }
 
 function OverviewTab({ stats, loading }: { stats: any[]; loading: boolean }) {
+  if (loading) return <DashboardLoading />;
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {stats.map((s, i) => (
         <motion.div key={s.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-          className="glass rounded-2xl p-6"
+          className="glass rounded-none p-6"
         >
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs font-semibold normal-case tracking-normal text-slate-600">{s.label}</p>
@@ -129,10 +119,10 @@ function UsersTab() {
       <div className="relative max-w-md mb-6">
         <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" />
         <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users..."
-          className="w-full bg-slate-100 border border-slate-300 rounded-xl py-3 pl-10 pr-4 text-sm outline-none focus:border-red-500/50 transition-all" />
+          className="w-full bg-slate-100 border border-slate-300 rounded-none py-3 pl-10 pr-4 text-sm outline-none focus:border-red-500/50 transition-all" />
       </div>
-      <div className="glass rounded-2xl overflow-hidden">
-        <table className="w-full">
+      <div className="glass w-full overflow-x-auto rounded-none" role="region" aria-label="Dashboard records" tabIndex={0}>
+        <table className="w-full min-w-[640px]">
           <thead>
             <tr className="border-b border-slate-300">
               <th className="text-left p-4 text-xs font-semibold normal-case tracking-normal text-slate-600">Email</th>
@@ -148,15 +138,15 @@ function UsersTab() {
               filtered.map((u: any) => (
                 <tr key={u.id} className="border-b border-slate-300 hover:bg-slate-100 transition-colors">
                   <td className="p-4"><span className="text-sm font-bold">{u.email}</span></td>
-                  <td className="p-4"><span className="text-xs font-semibold normal-case tracking-normal px-2 py-1 rounded-full bg-red-500/10 text-red-700">{u.role}</span></td>
+                  <td className="p-4"><span className="text-xs font-semibold normal-case tracking-normal px-2 py-1 rounded-none bg-red-500/10 text-red-700">{u.role}</span></td>
                   <td className="p-4"><span className={`text-xs font-semibold normal-case tracking-normal ${u.status === 'ACTIVE' ? 'text-green-700' : 'text-red-700'}`}>{u.status}</span></td>
                   <td className="p-4 text-xs text-slate-600">{new Date(u.created_at || new Date()).toLocaleDateString()}</td>
                   <td className="p-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {u.role === 'ORGANIZER' && (
-                        <button onClick={() => handleRemoveOrganizer(u.id)} title="Remove Organizer" className="p-2 hover:bg-orange-500/10 rounded-lg text-orange-500/50 hover:text-orange-700"><Activity size={14} /></button>
+                        <button onClick={() => handleRemoveOrganizer(u.id)} title="Remove Organizer" aria-label="Remove Organizer" className="p-2 hover:bg-orange-500/10 rounded-none text-orange-700 hover:text-orange-700"><Activity size={14} /></button>
                       )}
-                      <button onClick={() => handleBanUser(u.id)} title="Ban User" className="p-2 hover:bg-red-500/10 rounded-lg text-red-500/50 hover:text-red-700"><Ban size={14} /></button>
+                      <button onClick={() => handleBanUser(u.id)} title="Ban User" aria-label="Ban User" className="p-2 hover:bg-red-500/10 rounded-none text-red-700 hover:text-red-700"><Ban size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -193,15 +183,15 @@ function AccessCodesTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <h3 className="text-sm font-semibold normal-case tracking-tight">Organizer Access Codes</h3>
         <button onClick={handleGenerate} disabled={generating} className="btn-primary text-xs flex items-center gap-2">
           {generating ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
           Generate New Code
         </button>
       </div>
-      <div className="glass rounded-2xl overflow-hidden">
-        <table className="w-full">
+      <div className="glass w-full overflow-x-auto rounded-none" role="region" aria-label="Dashboard records" tabIndex={0}>
+        <table className="w-full min-w-[640px]">
           <thead>
             <tr className="border-b border-slate-300">
               <th className="text-left p-4 text-xs font-semibold normal-case tracking-normal text-slate-600">Code</th>
@@ -250,8 +240,8 @@ function EventsTab() {
   };
 
   return (
-    <div className="glass rounded-2xl overflow-hidden">
-      <table className="w-full">
+    <div className="glass w-full overflow-x-auto rounded-none" role="region" aria-label="Dashboard records" tabIndex={0}>
+      <table className="w-full min-w-[640px]">
         <thead>
           <tr className="border-b border-slate-300">
             <th className="text-left p-4 text-xs font-semibold normal-case tracking-normal text-slate-600">Title</th>
@@ -268,15 +258,15 @@ function EventsTab() {
               <tr key={ev.id} className="border-b border-slate-300 hover:bg-slate-100 transition-colors">
                 <td className="p-4"><span className="text-sm font-bold">{ev.title}</span></td>
                 <td className="p-4 text-xs text-slate-600">{ev.organizer?.email}</td>
-                <td className="p-4"><span className={`text-xs font-semibold normal-case tracking-normal px-2 py-1 rounded-full ${ev.status === 'LIVE' || ev.status === 'APPROVED' ? 'bg-green-500/10 text-green-700' : ev.status === 'PENDING' ? 'bg-yellow-500/10 text-yellow-700' : ev.status === 'ONGOING' ? 'bg-blue-500/10 text-blue-700' : ev.status === 'DRAFT' ? 'bg-slate-100 text-slate-600' : 'bg-red-500/10 text-red-700'}`}>{ev.status}</span></td>
+                <td className="p-4"><span className={`text-xs font-semibold normal-case tracking-normal px-2 py-1 rounded-none ${ev.status === 'LIVE' || ev.status === 'APPROVED' ? 'bg-green-500/10 text-green-700' : ev.status === 'PENDING' ? 'bg-yellow-500/10 text-yellow-700' : ev.status === 'ONGOING' ? 'bg-blue-500/10 text-blue-700' : ev.status === 'DRAFT' ? 'bg-slate-100 text-slate-600' : 'bg-red-500/10 text-red-700'}`}>{ev.status}</span></td>
                 <td className="p-4 text-xs text-slate-600">{new Date(ev.event_date).toLocaleDateString()}</td>
                 <td className="p-4 text-right">
                   <div className="flex items-center justify-end gap-2">
                     {ev.status !== 'LIVE' && ev.status !== 'APPROVED' && (
-                      <button onClick={() => handleUpdateStatus(ev.id, 'LIVE')} className="p-2 hover:bg-green-500/10 rounded-lg text-green-500/50 hover:text-green-700" title="Approve/Go Live"><CheckCircle size={14} /></button>
+                      <button onClick={() => handleUpdateStatus(ev.id, 'LIVE')} className="p-2 hover:bg-green-500/10 rounded-none text-green-700 hover:text-green-700" title="Approve/Go Live" aria-label="Approve/Go Live"><CheckCircle size={14} /></button>
                     )}
                     {ev.status !== 'DRAFT' && ev.status !== 'REJECTED' && (
-                      <button onClick={() => handleUpdateStatus(ev.id, 'DRAFT')} className="p-2 hover:bg-red-500/10 rounded-lg text-red-500/50 hover:text-red-700" title="Reject/Draft"><XCircle size={14} /></button>
+                      <button onClick={() => handleUpdateStatus(ev.id, 'DRAFT')} className="p-2 hover:bg-red-500/10 rounded-none text-red-700 hover:text-red-700" title="Reject/Draft" aria-label="Reject/Draft"><XCircle size={14} /></button>
                     )}
                   </div>
                 </td>
@@ -290,7 +280,7 @@ function EventsTab() {
 
 function SettingsTab() {
   const query = useQuery({ queryKey: ['admin-health'], queryFn: adminHealthAction });
-  return <div className="glass max-w-2xl rounded-2xl p-6 space-y-4">
+  return <div className="glass max-w-2xl rounded-none p-6 space-y-4">
     <h2 className="text-xl font-bold">System health</h2>
     {query.isPending && <p role="status">Checking services?</p>}
     {query.error && <p role="alert" className="text-red-700">{query.error.message}</p>}
