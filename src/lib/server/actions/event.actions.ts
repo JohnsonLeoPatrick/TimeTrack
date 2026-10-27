@@ -76,6 +76,7 @@ export async function getEventCached(id: string) {
       .from('events')
       .select('*, event_categories(*)')
       .eq('id', id)
+      .is('deleted_at', null)
       .single();
     if (error) {
       console.error(`Error fetching event ${id}:`, error);
